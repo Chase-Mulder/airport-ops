@@ -1,0 +1,48 @@
+# Push a tag like v1.0.0 to build AirportOps.exe and attach it to a GitHub Release.
+#   git tag v1.0.0
+#   git push origin v1.0.0
+name: Release desktop app
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Publish self-contained Windows build
+        run: dotnet publish src/Airport.Desktop/Airport.Desktop.csproj -c Release -r win-x64 --self-contained true -o out/AirportOps
+
+      - name: Zip
+        shell: pwsh
+        run: Compress-Archive -Path out/AirportOps/* -DestinationPath AirportOps-win-x64.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AirportOps-win-x64
+          path: AirportOps-win-x64.zip
+
+      - name: Attach to release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: AirportOps-win-x64.zip
+          body: |
+            **Airport Operations Center: Windows desktop edition**
+
+            1. Download `AirportOps-win-x64.zip` and extract it.
+            2. Double-click `AirportOps.exe`. Your browser opens at http://localhost:5080.
+            3. Data is saved to `airport.db` (SQLite) next to the exe. No install or .NET runtime needed.
+
+            Windows may show a SmartScreen warning because the exe isn't code-signed: click *More info → Run anyway*.
