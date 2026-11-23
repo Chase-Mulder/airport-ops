@@ -6,7 +6,9 @@ ground vehicles (fuel, catering, cleaning, baggage), and push back for departure
 schedule flights, change gates, close stands, delay or cancel flights, and watch the impact on punctuality.
 
 **▶ [Live demo](https://chase-mulder.github.io/airport-ops/)** (runs entirely in your browser)
-**⬇ [Download the Windows app](../../releases/latest)** (AirportOps.exe, saves to a local SQL database)
+**⬇ [Download the Windows app](https://github.com/Chase-Mulder/airport-ops/releases/latest)** (AirportOps.exe, saves to a local SQL database)
+
+![Airport Ops demo](docs/demo.gif)
 
 > Personal side project by **Chase A. Mulder**. All airlines, registrations and the airport are fictional.
 
