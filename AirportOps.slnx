@@ -1,0 +1,18 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Airport.Core/Airport.Core.csproj" />
+    <Project Path="src/Airport.Data/Airport.Data.csproj" />
+    <Project Path="src/Airport.UI/Airport.UI.csproj" />
+    <Project Path="src/Airport.Desktop/Airport.Desktop.csproj" />
+    <Project Path="src/Airport.Web/Airport.Web.csproj" />
+  </Folder>
+  <Folder Name="/sql/">
+    <File Path="sql/ReportingViews.sql" />
+  </Folder>
+  <Folder Name="/Solution Items/">
+    <File Path="Directory.Build.props" />
+    <File Path="README.md" />
+    <File Path=".github/workflows/deploy-pages.yml" />
+    <File Path=".github/workflows/release-exe.yml" />
+  </Folder>
+</Solution>

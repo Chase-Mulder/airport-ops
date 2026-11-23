@@ -1,0 +1,57 @@
+@inherits EngineComponent
+
+<header class="toolbar">
+    <div class="clock" title="Simulated local time">
+        <span class="clock-time">@Fmt.Clock(_now)</span>
+        <span class="muted small">@(Engine.Settings.Paused ? "paused" : $"{Engine.Settings.SpeedMultiplier:0}× speed")</span>
+    </div>
+
+    <div class="toolbar-group">
+        <button class="btn" @onclick="TogglePause">@(Engine.Settings.Paused ? "▶ Resume" : "❚❚ Pause")</button>
+        @foreach (var speed in Speeds)
+        {
+            <button class="btn @(Engine.Settings.SpeedMultiplier == speed ? "btn-on" : "")" @onclick="() => SetSpeed(speed)">@(speed)×</button>
+        }
+    </div>
+
+    <label class="toggle" title="Keep the schedule filled with arrivals automatically">
+        <input type="checkbox" checked="@Engine.Settings.AutoFlights" @onchange="ToggleAuto" />
+        <span>Auto flights</span>
+    </label>
+
+    <div class="toolbar-spacer"></div>
+
+    <div class="storage @(Engine.StorageError is null ? "" : "storage-error")" title="@(Engine.StorageError ?? "Where data is saved")">
+        <span class="dot"></span>@Engine.StorageDescription
+    </div>
+
+    @if (_confirmReset)
+    {
+        <button class="btn btn-danger" @onclick="Reset">Confirm reset</button>
+        <button class="btn" @onclick="() => _confirmReset = false">Keep</button>
+    }
+    else
+    {
+        <button class="btn" @onclick="() => _confirmReset = true" title="Wipe all flights and start a fresh demo day">Reset demo</button>
+    }
+</header>
+
+@code {
+    private static readonly double[] Speeds = { 10, 30, 60, 120 };
+    private DateTime _now;
+    private bool _confirmReset;
+
+    protected override int RefreshMs => 250;
+
+    protected override void Refresh() => _now = Engine.SimNow;
+
+    private void TogglePause() => Engine.Settings.Paused = !Engine.Settings.Paused;
+    private void SetSpeed(double speed) => Engine.Settings.SpeedMultiplier = speed;
+    private void ToggleAuto(ChangeEventArgs e) => Engine.Settings.AutoFlights = e.Value is true || e.Value?.ToString() == "true";
+
+    private async Task Reset()
+    {
+        _confirmReset = false;
+        await Engine.ResetAsync();
+    }
+}

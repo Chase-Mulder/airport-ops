@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json.schemastore.org/launchsettings.json",
+  "profiles": {
+    "AirportOps (SQLite)": {
+      "commandName": "Project",
+      "launchBrowser": true,
+      "applicationUrl": "http://localhost:5080",
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development"
+      }
+    },
+    "AirportOps (SQL Server LocalDB)": {
+      "commandName": "Project",
+      "launchBrowser": true,
+      "applicationUrl": "http://localhost:5080",
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development",
+        "Database__Provider": "SqlServer",
+        "Database__ConnectionString": "Server=(localdb)\\MSSQLLocalDB;Database=AirportOps;Trusted_Connection=True;TrustServerCertificate=True"
+      }
+    }
+  }
+}

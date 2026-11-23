@@ -1,0 +1,27 @@
+@inherits LayoutComponentBase
+
+<div class="shell">
+    <aside class="sidebar">
+        <div class="brand">
+            <svg viewBox="-1.1 -1.1 2.2 2.2" class="brand-icon" aria-hidden="true">
+                <path d="@AirfieldMap.PlaneBody" fill="currentColor" />
+            </svg>
+            <div>
+                <div class="brand-title">Airport Ops</div>
+                <div class="brand-sub">Operations Center</div>
+            </div>
+        </div>
+        <NavMenu />
+        <div class="sidebar-foot">
+            <div>Built by <strong>Chase A. Mulder</strong></div>
+            <div class="muted">C# · .NET · Blazor · EF Core · SQL</div>
+        </div>
+    </aside>
+
+    <div class="main">
+        <SimToolbar />
+        <main class="content">
+            @Body
+        </main>
+    </div>
+</div>

@@ -1,0 +1,12 @@
+@* Shared router: both hosts render <Routes />, so every page lives in this library. *@
+<Router AppAssembly="typeof(Routes).Assembly">
+    <Found Context="routeData">
+        <RouteView RouteData="routeData" DefaultLayout="typeof(MainLayout)" />
+        <FocusOnNavigate RouteData="routeData" Selector="h1" />
+    </Found>
+    <NotFound>
+        <LayoutView Layout="typeof(MainLayout)">
+            <div class="card"><h1>Not found</h1><p class="muted">That page doesn't exist. <a href="">Back to the airfield</a>.</p></div>
+        </LayoutView>
+    </NotFound>
+</Router>

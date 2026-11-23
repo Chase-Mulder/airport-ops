@@ -1,0 +1,202 @@
+@page "/gates"
+@inherits EngineComponent
+
+<PageTitle>Gates · Airport Ops</PageTitle>
+
+<div class="page-head">
+    <h1>Gates</h1>
+    <p class="muted">Stand plan for the next three hours. Solid bars are aircraft on stand or already gone; outlined bars are planned. Change gates from the flight board.</p>
+</div>
+
+<div class="card">
+    <div class="table-wrap">
+        <svg class="gantt" viewBox="0 0 @Fmt.N(TotalW) @Fmt.N(TotalH)" role="img" aria-label="Gate occupancy timeline">
+            <defs>
+                <pattern id="hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+                    <rect width="6" height="6" fill="#1a1f25" />
+                    <line x1="0" y1="0" x2="0" y2="6" stroke="#5a2a2a" stroke-width="2" />
+                </pattern>
+            </defs>
+
+            @for (var i = 0; i <= 8; i++)
+            {
+                var t = _start.AddMinutes(i * 30);
+                var x = X(t);
+                <line x1="@Fmt.N(x)" y1="@Fmt.N(HeaderH - 4)" x2="@Fmt.N(x)" y2="@Fmt.N(TotalH)" class="gantt-grid" />
+                <g><text x="@Fmt.N(x)" y="16" class="gantt-tick">@Fmt.Time(t)</text></g>
+            }
+
+            @for (var r = 0; r < _gateRows.Count; r++)
+            {
+                var row = _gateRows[r];
+                var y = HeaderH + r * RowH;
+                <g>
+                    <rect x="@Fmt.N(LabelW)" y="@Fmt.N(y + 2)" width="@Fmt.N(TimelineW)" height="@Fmt.N(RowH - 4)" class="@(row.Closed ? "gantt-row-closed" : r % 2 == 0 ? "gantt-row" : "gantt-row alt")" fill="@(row.Closed ? "url(#hatch)" : null)" />
+                    <text x="8" y="@Fmt.N(y + RowH / 2 - 2)" class="gantt-gate">@row.Code</text>
+                    <text x="8" y="@Fmt.N(y + RowH / 2 + 11)" class="gantt-size">@(row.Closed ? row.Size + " · closed" : row.Size)</text>
+                </g>
+            }
+
+            @foreach (var b in _bars)
+            {
+                var y = HeaderH + b.Row * RowH + 6;
+                var w = Math.Max(3, b.X2 - b.X1);
+                <g class="gantt-bar">
+                    <title>@b.Tooltip</title>
+                    <rect x="@Fmt.N(b.X1)" y="@Fmt.N(y)" width="@Fmt.N(w)" height="@Fmt.N(RowH - 12)" rx="4"
+                          fill="@b.Color" fill-opacity="@(b.Actual ? "0.85" : "0.18")"
+                          stroke="@(b.Conflict ? "#f85149" : b.Color)" stroke-width="@(b.Conflict ? "2" : "1.5")"
+                          stroke-dasharray="@(b.Actual ? null : "4 3")" />
+                    @if (w > 54)
+                    {
+                        <g><text x="@Fmt.N(b.X1 + 6)" y="@Fmt.N(y + (RowH - 12) / 2 + 4)" class="@(b.Actual ? "gantt-label on-fill" : "gantt-label")">@b.Label</text></g>
+                    }
+                </g>
+            }
+
+            <line x1="@Fmt.N(X(_now))" y1="@Fmt.N(HeaderH - 6)" x2="@Fmt.N(X(_now))" y2="@Fmt.N(TotalH)" class="gantt-now" />
+            <g><text x="@Fmt.N(X(_now) + 4)" y="@Fmt.N(HeaderH - 8)" class="gantt-now-label">now</text></g>
+        </svg>
+    </div>
+    <div class="legend">
+        <span class="legend-item"><span class="swatch swatch-solid"></span>On stand / used</span>
+        <span class="legend-item"><span class="swatch swatch-planned"></span>Planned</span>
+        <span class="legend-item"><span class="swatch swatch-conflict"></span>Overlap (gate change needed)</span>
+        <span class="legend-item"><span class="swatch swatch-closed"></span>Closed</span>
+    </div>
+</div>
+
+<div class="two-col">
+    <div class="card">
+        <h3 class="section-title">Stands</h3>
+        <table class="grid">
+            <thead><tr><th>Gate</th><th>Size</th><th>On stand</th><th>Next arrival</th><th class="num">Used (3 h)</th><th></th></tr></thead>
+            <tbody>
+                @foreach (var g in _gateRows)
+                {
+                    <tr>
+                        <td><strong>@g.Code</strong></td>
+                        <td>@g.Size</td>
+                        <td>@(g.Occupant ?? "—")</td>
+                        <td>@(g.Next ?? "—")</td>
+                        <td class="num">@Fmt.Pct(g.Utilization)</td>
+                        <td class="actions">
+                            <button class="btn btn-small @(g.Closed ? "" : "btn-danger-ghost")" @onclick="() => Toggle(g.Id)">@(g.Closed ? "Reopen" : "Close")</button>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+        @if (_message is not null) { <p class="small muted">@_message</p> }
+    </div>
+
+    <div class="card">
+        <div class="card-head">
+            <h3 class="section-title">Without a gate</h3>
+            <button class="btn btn-small" @onclick="AutoPlan" disabled="@(_unassigned.Count == 0)">Run gate planner</button>
+        </div>
+        @if (_unassigned.Count == 0)
+        {
+            <p class="muted small">Every scheduled flight has a gate.</p>
+        }
+        else
+        {
+            <p class="muted small">These flights will take the first free compatible stand when they arrive, or hold until one frees up.</p>
+            <table class="mini">
+                @foreach (var u in _unassigned)
+                {
+                    <tr><td class="mono">@u.Callsign</td><td>@u.Type</td><td>@u.Window</td></tr>
+                }
+            </table>
+        }
+    </div>
+</div>
+
+@code {
+    private const double LabelW = 92, TimelineW = 880, RowH = 40, HeaderH = 28, WindowMinutes = 240;
+    private double TotalW => LabelW + TimelineW + 10;
+    private double TotalH => HeaderH + _gateRows.Count * RowH + 4;
+
+    private sealed record GateRow(int Id, string Code, string Size, bool Closed, string? Occupant, string? Next, double Utilization);
+    private sealed record Bar(int Row, double X1, double X2, string Color, bool Actual, bool Conflict, string Label, string Tooltip);
+    private sealed record Unassigned(string Callsign, string Type, string Window);
+
+    private List<GateRow> _gateRows = new();
+    private List<Bar> _bars = new();
+    private List<Unassigned> _unassigned = new();
+    private DateTime _now, _start;
+    private string? _message;
+
+    protected override int RefreshMs => 1000;
+
+    private double X(DateTime t) =>
+        LabelW + Math.Clamp((t - _start).TotalMinutes / WindowMinutes, 0, 1) * TimelineW;
+
+    protected override void Refresh()
+    {
+        Engine.Read(v =>
+        {
+            _now = v.Now;
+            var anchor = _now.AddMinutes(-60);
+            _start = new DateTime(anchor.Year, anchor.Month, anchor.Day, anchor.Hour, anchor.Minute >= 30 ? 30 : 0, 0);
+            var end = _start.AddMinutes(WindowMinutes);
+            var rowOf = v.Gates.Select((g, i) => (g.Id, i)).ToDictionary(x => x.Id, x => x.i);
+
+            _bars = new List<Bar>();
+            var used = new Dictionary<int, double>();
+            foreach (var f in v.Flights)
+            {
+                if (f.Status == FlightStatus.Cancelled || f.GateId is not int gid || !rowOf.TryGetValue(gid, out var row)) continue;
+                var s = f.OnBlockAt ?? f.ScheduledArrival;
+                var e = f.OffBlockAt ?? (f.IsOnGround ? (f.ScheduledDeparture > _now ? f.ScheduledDeparture : _now) : f.ScheduledDeparture);
+
+                // Stand usage over the last three hours.
+                if (f.OnBlockAt is DateTime on)
+                {
+                    var from = on > _now.AddHours(-3) ? on : _now.AddHours(-3);
+                    var to = f.OffBlockAt ?? _now;
+                    if (to > from) used[gid] = used.GetValueOrDefault(gid) + (to - from).TotalMinutes;
+                }
+
+                if (e < _start || s > end) continue;
+                var actual = f.OnBlockAt is not null;
+                var conflict = !f.HasLanded && v.GateById(gid) is { } gate && v.GateHasConflict(gate, f);
+                _bars.Add(new Bar(row, X(s), X(e), v.AirlineOf(f)?.Color ?? "#9aa5b1", actual, conflict,
+                    actual && f.HasLanded && f.Status != FlightStatus.TaxiIn ? f.DepartureNumber : f.ArrivalNumber,
+                    $"{f.ArrivalNumber}/{f.DepartureNumber} · {f.Origin}→{f.Destination} · {Fmt.Time(s)}–{Fmt.Time(e)} · {Fmt.StatusText(f.Status, v.IsHolding(f))}"));
+            }
+
+            var open = v.OpenFlights.ToList();
+            _gateRows = v.Gates.Select(g =>
+            {
+                var occ = v.OccupantOf(g.Id);
+                var next = open.Where(f => f.GateId == g.Id && !f.HasLanded && f.Id != occ?.Id)
+                    .OrderBy(f => f.ScheduledArrival).FirstOrDefault();
+                return new GateRow(g.Id, g.Code, Fmt.SizeLabel(g.MaxSize), g.IsClosed,
+                    occ is null ? null : v.Callsign(occ),
+                    next is null ? null : $"{next.ArrivalNumber} {Fmt.Time(next.ScheduledArrival)}",
+                    Math.Min(1, used.GetValueOrDefault(g.Id) / 180.0));
+            }).ToList();
+
+            _unassigned = open
+                .Where(f => f.GateId is null && f.Status is FlightStatus.Scheduled or FlightStatus.Approach)
+                .OrderBy(f => f.ScheduledArrival)
+                .Select(f => new Unassigned($"{f.ArrivalNumber}/{f.DepartureNumber}", v.TypeOf(f)?.Code ?? "",
+                    $"{Fmt.Time(f.ScheduledArrival)}–{Fmt.Time(f.ScheduledDeparture)}"))
+                .ToList();
+            return 0;
+        });
+    }
+
+    private void Toggle(int gateId)
+    {
+        _message = Engine.ToggleGateClosed(gateId).Message;
+        RefreshNow();
+    }
+
+    private void AutoPlan()
+    {
+        _message = Engine.PlanUnassignedGates().Message;
+        RefreshNow();
+    }
+}

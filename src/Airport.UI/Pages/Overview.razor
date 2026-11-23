@@ -1,0 +1,303 @@
+@page "/"
+@inherits EngineComponent
+
+<PageTitle>Airfield · Airport Ops</PageTitle>
+
+<div class="page-head">
+    <h1>Airfield</h1>
+    <p class="muted">Live view of runway 27, the apron and ground handling. Click an aircraft or a gate for details.</p>
+</div>
+
+<div class="kpis">
+    <div class="kpi"><div class="kpi-label">Aircraft on ground</div><div class="kpi-value">@_kpi.OnGround</div></div>
+    <div class="kpi"><div class="kpi-label">Inbound</div><div class="kpi-value">@_kpi.Inbound</div>
+        <div class="kpi-sub @(_kpi.Holding > 0 ? "warn-text" : "")">@(_kpi.Holding > 0 ? $"▲ {_kpi.Holding} holding" : "none holding")</div></div>
+    <div class="kpi"><div class="kpi-label">Departures (last hour)</div><div class="kpi-value">@_kpi.DepartedLastHour</div></div>
+    <div class="kpi"><div class="kpi-label">On-time departures</div><div class="kpi-value">@(_kpi.OnTime is double p ? Fmt.Pct(p) : "—")</div>
+        <div class="kpi-sub">off-block ≤ 15 min late, last 3 h</div></div>
+    <div class="kpi"><div class="kpi-label">Gates in use</div><div class="kpi-value">@_kpi.GatesInUse<span class="kpi-of">/@_kpi.GatesOpen</span></div></div>
+    <div class="kpi"><div class="kpi-label">Ground vehicles busy</div><div class="kpi-value">@_kpi.VehiclesBusy<span class="kpi-of">/@_kpi.Vehicles</span></div></div>
+</div>
+
+<div class="overview-grid">
+    <div class="card map-card">
+        <AirfieldMap Snapshot="_map" SelectedFlightId="_selectedFlight" SelectedGateId="_selectedGate"
+                     OnSelectFlight="SelectFlight" OnSelectGate="SelectGate" />
+        <div class="legend">
+            <span class="legend-item"><svg viewBox="-1.1 -1.1 2.2 2.2" class="legend-plane"><path d="@AirfieldMap.PlaneBody" fill="#e8ecef" /></svg>Aircraft (tail = airline)</span>
+            @foreach (var st in new[] { ServiceType.Baggage, ServiceType.Fuel, ServiceType.Catering, ServiceType.Cleaning })
+            {
+                <span class="legend-item"><span class="swatch" style="background:@Fmt.VehicleColor(st)"></span>@Fmt.VehicleLabel(st)</span>
+            }
+            <span class="legend-item"><span class="swatch swatch-line"></span>Turnaround progress</span>
+        </div>
+    </div>
+
+    <div class="side">
+        @if (_detail is not null)
+        {
+            <div class="card">
+                <div class="card-head">
+                    <div>
+                        <div class="flight-title"><span class="airline-dot" style="background:@_detail.AirlineColor"></span>@_detail.ArrivalNumber / @_detail.DepartureNumber</div>
+                        <div class="muted small">@_detail.Airline · @_detail.Type · @_detail.Registration</div>
+                    </div>
+                    <button class="btn btn-ghost" @onclick="ClearSelection" aria-label="Close">✕</button>
+                </div>
+                <dl class="facts">
+                    <dt>Route</dt><dd>@_detail.Origin → <strong>LKR</strong> → @_detail.Destination</dd>
+                    <dt>Status</dt><dd><span class="@_detail.StatusClass">@_detail.Status</span></dd>
+                    <dt>Gate</dt><dd>@(_detail.Gate ?? "unassigned")</dd>
+                    <dt>Arrival</dt><dd>STA @Fmt.Time(_detail.Sta) · on block @Fmt.Time(_detail.OnBlock)</dd>
+                    <dt>Departure</dt><dd>STD @Fmt.Time(_detail.Std) · off block @Fmt.Time(_detail.OffBlock)</dd>
+                    <dt>Delay</dt><dd class="@(_detail.Delay > 15 ? "bad-text" : "")">@(_detail.Delay > 0.5 ? $"{_detail.Delay:0} min" : "on time")</dd>
+                    <dt>Passengers</dt><dd>@_detail.PaxIn in · @_detail.PaxOut out</dd>
+                </dl>
+
+                @if (_detail.Tasks.Count > 0)
+                {
+                    <h3 class="section-title">Turnaround</h3>
+                    <ul class="task-list">
+                        @foreach (var t in _detail.Tasks)
+                        {
+                            <li>
+                                <div class="task-row">
+                                    <span>@t.Name</span>
+                                    <span class="muted small">@(t.Vehicle is null ? t.StatusText : $"{t.StatusText} · {t.Vehicle}")</span>
+                                </div>
+                                <div class="bar"><div class="bar-fill @(t.Done ? "bar-done" : "")" style="width:@Fmt.N(t.Progress * 100)%"></div></div>
+                            </li>
+                        }
+                    </ul>
+                }
+                else
+                {
+                    <p class="muted small">Turnaround tasks start when the aircraft reaches its stand.</p>
+                }
+                <a class="btn btn-block" href="flights">Open flight board</a>
+            </div>
+        }
+        else if (_gateInfo is not null)
+        {
+            <div class="card">
+                <div class="card-head">
+                    <div class="flight-title">Gate @_gateInfo.Code</div>
+                    <button class="btn btn-ghost" @onclick="ClearSelection" aria-label="Close">✕</button>
+                </div>
+                <dl class="facts">
+                    <dt>Stand size</dt><dd>@_gateInfo.Size</dd>
+                    <dt>Status</dt><dd>@(_gateInfo.Closed ? "Closed" : "Open") · empty</dd>
+                    <dt>Next flight</dt><dd>@(_gateInfo.Next ?? "none planned")</dd>
+                </dl>
+                <button class="btn btn-block" @onclick="ToggleGate">@(_gateInfo.Closed ? "Reopen gate" : "Close gate")</button>
+                @if (_message is not null) { <p class="small muted">@_message</p> }
+            </div>
+        }
+
+        <div class="card">
+            <h3 class="section-title">Arrival sequence</h3>
+            @if (_arrivals.Count == 0)
+            {
+                <p class="muted small">No arrivals in the next hour.</p>
+            }
+            <table class="mini">
+                @foreach (var r in _arrivals)
+                {
+                    <tr class="clickable" @onclick="() => SelectFlight(r.FlightId)">
+                        <td><span class="airline-dot" style="background:@r.Color"></span>@r.Callsign</td>
+                        <td class="muted">@r.Route</td>
+                        <td>@r.Time</td>
+                        <td>@(r.Gate ?? "—")</td>
+                        <td><span class="@r.StatusClass">@r.Status</span></td>
+                    </tr>
+                }
+            </table>
+        </div>
+
+        <div class="card">
+            <h3 class="section-title">Departure queue</h3>
+            @if (_departures.Count == 0)
+            {
+                <p class="muted small">Nobody taxiing out right now.</p>
+            }
+            <table class="mini">
+                @foreach (var r in _departures)
+                {
+                    <tr class="clickable" @onclick="() => SelectFlight(r.FlightId)">
+                        <td><span class="airline-dot" style="background:@r.Color"></span>@r.Callsign</td>
+                        <td class="muted">@r.Route</td>
+                        <td>@r.Time</td>
+                        <td>@(r.Gate ?? "—")</td>
+                        <td><span class="@r.StatusClass">@r.Status</span></td>
+                    </tr>
+                }
+            </table>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <h3 class="section-title">Operations log</h3>
+    <ul class="log">
+        @foreach (var e in _events)
+        {
+            <li class="log-@e.Kind.ToString().ToLowerInvariant()"><span class="log-time">@Fmt.Time(e.Time)</span>@e.Text</li>
+        }
+    </ul>
+</div>
+
+@code {
+    private sealed record Kpi(int OnGround, int Inbound, int Holding, int DepartedLastHour, double? OnTime, int GatesInUse, int GatesOpen, int VehiclesBusy, int Vehicles);
+    private sealed record Row(int FlightId, string Callsign, string Color, string Route, string Time, string? Gate, string Status, string StatusClass);
+    private sealed record TaskView(string Name, string StatusText, string? Vehicle, double Progress, bool Done);
+    private sealed record Detail(
+        string ArrivalNumber, string DepartureNumber, string Airline, string AirlineColor, string Type, string Registration,
+        string Origin, string Destination, string Status, string StatusClass, string? Gate,
+        DateTime Sta, DateTime? OnBlock, DateTime Std, DateTime? OffBlock, double Delay, int PaxIn, int PaxOut, List<TaskView> Tasks);
+    private sealed record GateInfo(string Code, string Size, bool Closed, string? Next);
+
+    private MapSnapshot _map = MapSnapshot.Empty;
+    private Kpi _kpi = new(0, 0, 0, 0, null, 0, 0, 0, 0);
+    private List<Row> _arrivals = new();
+    private List<Row> _departures = new();
+    private List<EngineEvent> _events = new();
+    private Detail? _detail;
+    private GateInfo? _gateInfo;
+    private int? _selectedFlight;
+    private int? _selectedGate;
+    private string? _message;
+
+    protected override int RefreshMs => 150;
+
+    protected override void Refresh()
+    {
+        Engine.Read(v =>
+        {
+            _map = MapSnapshot.From(v);
+            var now = v.Now;
+
+            var open = v.OpenFlights.ToList();
+            var departedRecent = v.Flights.Where(f => f.DepartedAt > now.AddHours(-1)).Count();
+            var offBlocks = v.Flights.Where(f => f.OffBlockAt > now.AddHours(-3)).ToList();
+            double? onTime = offBlocks.Count == 0 ? null
+                : offBlocks.Count(f => (f.OffBlockAt!.Value - f.ScheduledDeparture).TotalMinutes <= v.Settings.OnTimeToleranceMinutes) / (double)offBlocks.Count;
+
+            _kpi = new Kpi(
+                open.Count(f => f.IsOnGround),
+                open.Count(f => f.Status == FlightStatus.Approach),
+                open.Count(v.IsHolding),
+                departedRecent,
+                onTime,
+                v.Gates.Count(g => v.OccupantOf(g.Id) is not null),
+                v.Gates.Count(g => !g.IsClosed),
+                v.Vehicles.Count(x => x.IsBusy),
+                v.Vehicles.Count);
+
+            Row ToRow(Flight f, bool departure) => new(
+                f.Id,
+                departure ? f.DepartureNumber : f.ArrivalNumber,
+                v.AirlineOf(f)?.Color ?? "#9aa5b1",
+                departure ? $"→ {f.Destination}" : $"{f.Origin} →",
+                Fmt.Time(departure ? f.ScheduledDeparture : f.ScheduledArrival),
+                v.GateOf(f)?.Code,
+                Fmt.StatusText(f.Status, v.IsHolding(f)),
+                Fmt.StatusClass(f.Status, v.IsHolding(f)));
+
+            _arrivals = open
+                .Where(f => f.Status is FlightStatus.Scheduled or FlightStatus.Approach or FlightStatus.Landing or FlightStatus.TaxiIn)
+                .Where(f => f.ScheduledArrival < now.AddMinutes(60))
+                .OrderBy(f => f.ScheduledArrival)
+                .Take(8)
+                .Select(f => ToRow(f, false))
+                .ToList();
+
+            _departures = open
+                .Where(f => f.Status is FlightStatus.Boarding or FlightStatus.TaxiOut)
+                .OrderBy(f => f.Status == FlightStatus.TaxiOut ? 0 : 1)
+                .ThenBy(f => f.ScheduledDeparture)
+                .Take(8)
+                .Select(f => ToRow(f, true))
+                .ToList();
+
+            _events = v.Events.Take(14).ToList();
+
+            _detail = null;
+            _gateInfo = null;
+            if (_selectedGate is int gid && _selectedFlight is null && v.GateById(gid) is { } gate)
+            {
+                var occupant = v.OccupantOf(gid);
+                if (occupant is not null)
+                {
+                    _selectedFlight = occupant.Id;
+                }
+                else
+                {
+                    var next = open.Where(f => f.GateId == gid && !f.HasLanded).OrderBy(f => f.ScheduledArrival).FirstOrDefault();
+                    _gateInfo = new GateInfo(gate.Code, Fmt.SizeLabel(gate.MaxSize), gate.IsClosed,
+                        next is null ? null : $"{next.ArrivalNumber} at {Fmt.Time(next.ScheduledArrival)}");
+                }
+            }
+
+            if (_selectedFlight is int fid && v.FlightById(fid) is { } sel)
+            {
+                var tasks = v.TasksFor(sel.Id).Select(t =>
+                {
+                    var progress = t.Status switch
+                    {
+                        ServiceStatus.Done => 1.0,
+                        ServiceStatus.InProgress when t.StartedAt is DateTime s => Math.Clamp((now - s).TotalMinutes / Math.Max(0.1, t.DurationMinutes), 0, 1),
+                        _ => 0.0
+                    };
+                    var statusText = t.Status switch
+                    {
+                        ServiceStatus.Waiting => "waiting",
+                        ServiceStatus.Ready => t.NeedsVehicle ? "needs vehicle" : "ready",
+                        ServiceStatus.Assigned => "vehicle en route",
+                        ServiceStatus.InProgress => $"{Math.Max(0, t.DurationMinutes - (now - (t.StartedAt ?? now)).TotalMinutes):0} min left",
+                        ServiceStatus.Done => "done",
+                        _ => t.Status.ToString().ToLowerInvariant()
+                    };
+                    return new TaskView(t.Type.ToString(), statusText, t.VehicleName, progress, t.Status == ServiceStatus.Done);
+                }).ToList();
+
+                var holding = v.IsHolding(sel);
+                _detail = new Detail(sel.ArrivalNumber, sel.DepartureNumber, v.AirlineOf(sel)?.Name ?? "", v.AirlineOf(sel)?.Color ?? "#9aa5b1",
+                    v.TypeOf(sel)?.Code ?? "", sel.Registration, sel.Origin, sel.Destination,
+                    Fmt.StatusText(sel.Status, holding), Fmt.StatusClass(sel.Status, holding), v.GateOf(sel)?.Code,
+                    sel.ScheduledArrival, sel.OnBlockAt, sel.ScheduledDeparture, sel.OffBlockAt,
+                    sel.HasLanded ? v.DepartureDelayMinutes(sel) : v.ArrivalDelayMinutes(sel),
+                    sel.PassengersIn, sel.PassengersOut, tasks);
+            }
+            return 0;
+        });
+    }
+
+    private void SelectFlight(int id)
+    {
+        _selectedFlight = id;
+        _selectedGate = null;
+        _message = null;
+        RefreshNow();
+    }
+
+    private void SelectGate(int id)
+    {
+        _selectedGate = id;
+        _selectedFlight = null;
+        _message = null;
+        RefreshNow();
+    }
+
+    private void ClearSelection()
+    {
+        _selectedFlight = null;
+        _selectedGate = null;
+        RefreshNow();
+    }
+
+    private void ToggleGate()
+    {
+        if (_selectedGate is int id) _message = Engine.ToggleGateClosed(id).Message;
+        RefreshNow();
+    }
+}

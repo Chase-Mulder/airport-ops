@@ -1,0 +1,169 @@
+@* Top-down SVG of the airfield. Static layout is drawn from AirportLayout; moving parts come from MapSnapshot. *@
+@using L = Airport.Core.Simulation.AirportLayout
+
+<svg class="airfield" viewBox="0 0 @W @H" role="img" aria-label="Airfield map with aircraft and ground vehicles">
+    <defs>
+        <pattern id="grass" width="8" height="8" patternUnits="userSpaceOnUse">
+            <rect width="8" height="8" fill="#141c17" />
+            <circle cx="2" cy="2" r="0.6" fill="#1a2620" />
+        </pattern>
+    </defs>
+
+    @* ground *@
+    <rect x="0" y="0" width="@W" height="@H" fill="url(#grass)" />
+    <rect x="@R(2)" y="@R(4)" width="@Span(2, 45)" height="@Span(4, 12)" class="apron" />
+
+    @* terminal *@
+    <rect x="@R(L.TerminalLeft)" y="@R(L.TerminalTop)" width="@Span(L.TerminalLeft, L.TerminalRight)" height="@Span(L.TerminalTop, L.TerminalBottom)" rx="6" class="terminal" />
+    <line x1="@R(24)" y1="@R(L.TerminalTop)" x2="@R(24)" y2="@R(L.TerminalBottom + 1)" class="terminal-divider" />
+    <text x="@Fmt.P(13)" y="@Fmt.P(2)" class="terminal-label">CONCOURSE A</text>
+    <text x="@Fmt.P(34.5)" y="@Fmt.P(2)" class="terminal-label">CONCOURSE B</text>
+
+    @* service road and depots *@
+    <rect x="@R(1)" y="@R(L.RoadY)" width="@Span(1, 46)" height="@Span(L.RoadY, L.ServiceY)" class="road" />
+    <rect x="@R(1)" y="@R(L.RoadY)" width="@Span(1, 2)" height="@Span(L.RoadY, 10)" class="road" />
+    <rect x="@R(45)" y="@R(L.RoadY)" width="@Span(45, 46)" height="@Span(L.RoadY, 10)" class="road" />
+    <line x1="@R(1)" y1="@R(L.ServiceY)" x2="@R(47)" y2="@R(L.ServiceY)" class="road-line" />
+    <rect x="0" y="@R(6)" width="@Span(0, 0)" height="@Span(6, 10)" class="depot" />
+    <rect x="@R(47)" y="@R(6)" width="@Span(47, 47)" height="@Span(6, 10)" class="depot" />
+    <text x="@Fmt.P(0)" y="@Fmt.P(11.2)" class="tiny-label">GSE</text>
+    <text x="@Fmt.P(47)" y="@Fmt.P(11.2)" class="tiny-label">GSE</text>
+
+    @* taxiways *@
+    @foreach (var (from, to) in L.TaxiSegments())
+    {
+        <line x1="@Fmt.P(from.X)" y1="@Fmt.P(from.Y)" x2="@Fmt.P(to.X)" y2="@Fmt.P(to.Y)" class="taxiway" />
+    }
+    @foreach (var (from, to) in L.TaxiSegments())
+    {
+        <line x1="@Fmt.P(from.X)" y1="@Fmt.P(from.Y)" x2="@Fmt.P(to.X)" y2="@Fmt.P(to.Y)" class="taxi-centerline" />
+    }
+    <text x="@Fmt.P(23)" y="@Fmt.P(TaxiLabelY(L.TaxilaneY))" class="tiny-label">TAXILANE → </text>
+    <text x="@Fmt.P(23)" y="@Fmt.P(TaxiLabelY(L.TaxiwayY))" class="tiny-label">← TAXIWAY A</text>
+
+    @* runway *@
+    <rect x="@R(L.RunwayStartX)" y="@N(L.RunwayY * C - 4)" width="@Span(L.RunwayStartX, L.RunwayEndX)" height="@N(C + 8)" class="runway @(Snapshot.RunwayOp == RunwayOperation.None ? "" : "runway-busy")" />
+    <line x1="@Fmt.P(L.RunwayStartX + 1.5)" y1="@Fmt.P(L.RunwayY)" x2="@Fmt.P(L.RunwayEndX - 1.5)" y2="@Fmt.P(L.RunwayY)" class="runway-centerline" />
+    @for (var i = 0; i < 6; i++)
+    {
+        var y = L.RunwayY * C - 2 + i * 4.4;
+        <rect x="@N(L.RunwayEndX * C + 8)" y="@N(y)" width="9" height="2.6" class="threshold" />
+        <rect x="@N(L.RunwayStartX * C + 3)" y="@N(y)" width="9" height="2.6" class="threshold" />
+    }
+    <text x="@N(L.RunwayEndX * C - 14)" y="@Fmt.P(L.RunwayY)" class="runway-number" transform="rotate(-90 @N(L.RunwayEndX * C - 14) @Fmt.P(L.RunwayY))">27</text>
+    <text x="@N(L.RunwayStartX * C + 34)" y="@Fmt.P(L.RunwayY)" class="runway-number" transform="rotate(90 @N(L.RunwayStartX * C + 34) @Fmt.P(L.RunwayY))">09</text>
+    <text x="@Fmt.P(24)" y="@N((L.RunwayY + 1) * C + 14)" class="runway-status @(Snapshot.RunwayOp == RunwayOperation.None ? "idle" : "")">RUNWAY 27 · @RunwayText</text>
+    @if (Snapshot.Holding > 0)
+    {
+        <g>
+            <text x="@N(L.Width * C - 6)" y="@N((L.RunwayY - 1) * C)" class="holding-label">@Snapshot.Holding holding ◀</text>
+        </g>
+    }
+
+    @* gates and stands *@
+    @foreach (var g in Snapshot.Gates)
+    {
+        var gx = g.StandX;
+        <g class="gate @(SelectedGateId == g.Id ? "gate-selected" : "")" @onclick="() => OnSelectGate.InvokeAsync(g.Id)">
+            <rect x="@R(gx - 2)" y="@N(L.ServiceY * C + C)" width="@N(C * 5)" height="@N(C * 3)" class="stand-box" />
+            <rect x="@N(gx * C - 6)" y="@N(L.TerminalBottom * C + C - 2)" width="5" height="@N(C * 2.6)" class="jetbridge" />
+            <text x="@Fmt.P(gx)" y="@N(L.TerminalBottom * C + 6)" class="gate-label">@g.Code</text>
+            @if (g.MaxSize == AircraftSize.Widebody)
+            {
+                <g><text x="@Fmt.P(gx)" y="@N(L.TerminalBottom * C - 6)" class="tiny-label">HEAVY</text></g>
+            }
+            @if (g.Occupant is not null)
+            {
+                <rect x="@R(gx - 2)" y="@N((L.StandY + 1.5) * C + 4)" width="@N(C * 5 * g.Progress)" height="3" class="stand-progress" />
+            }
+            @if (g.Closed)
+            {
+                <g>
+                <line x1="@R(gx - 2)" y1="@N(L.ServiceY * C + C)" x2="@R(gx + 3)" y2="@N((L.StandY + 2) * C)" class="closed-x" />
+                <line x1="@R(gx + 3)" y1="@N(L.ServiceY * C + C)" x2="@R(gx - 2)" y2="@N((L.StandY + 2) * C)" class="closed-x" />
+                <text x="@Fmt.P(gx)" y="@Fmt.P(L.StandY)" class="closed-label">CLOSED</text>
+                </g>
+            }
+        </g>
+    }
+
+    @* selected aircraft route *@
+    @if (Selected is { RemainingPath.Count: > 0 } sel)
+    {
+        <polyline points="@RoutePoints(sel)" class="route" />
+    }
+
+    @* ground vehicles *@
+    @foreach (var v in Snapshot.Vehicles)
+    {
+        <g class="mover" style="transform: translate(@(Fmt.P(v.X))px, @(Fmt.P(v.Y))px) rotate(@(N(v.Heading))deg)">
+            <title>@v.Name</title>
+            <rect x="-7" y="-4.5" width="14" height="9" rx="2" fill="@v.Color" class="vehicle" />
+            @if (v.Busy)
+            {
+                <circle cx="3.5" cy="0" r="1.8" class="vehicle-busy" />
+            }
+        </g>
+    }
+
+    @* aircraft *@
+    @foreach (var a in Snapshot.Aircraft)
+    {
+        <g class="mover aircraft @(a.FlightId == SelectedFlightId ? "aircraft-selected" : "")"
+           style="transform: translate(@(Fmt.P(a.X))px, @(Fmt.P(a.Y))px) rotate(@(N(a.Heading))deg) scale(@(N(a.Scale)))"
+           @onclick="() => OnSelectFlight.InvokeAsync(a.FlightId)">
+            <title>@a.Label · @Fmt.StatusText(a.Status, false)</title>
+            <circle r="1.25" class="aircraft-hit" />
+            <path d="@PlaneBody" class="aircraft-body" />
+            <path d="@PlaneTail" fill="@a.TailColor" class="aircraft-tail" />
+        </g>
+        <g class="mover" style="transform: translate(@(Fmt.P(a.X))px, @(N(a.Y * C + C / 2 + a.Scale + 9))px)">
+            <text class="aircraft-label" fill="@a.TailColor">@a.Label</text>
+        </g>
+    }
+</svg>
+
+@code {
+    /// <summary>Plane silhouette pointing along +x, spanning -1..1. Scaled per aircraft size.</summary>
+    public const string PlaneBody =
+        "M1,0 L0.84,-0.08 L-0.82,-0.08 L-1,-0.03 L-1,0.03 L-0.82,0.08 L0.84,0.08 Z " +
+        "M0.24,-0.08 L-0.16,-0.94 L-0.34,-0.94 L-0.2,-0.08 Z " +
+        "M0.24,0.08 L-0.16,0.94 L-0.34,0.94 L-0.2,0.08 Z";
+
+    public const string PlaneTail =
+        "M-0.66,-0.08 L-0.9,-0.4 L-1,-0.4 L-0.9,-0.08 Z " +
+        "M-0.66,0.08 L-0.9,0.4 L-1,0.4 L-0.9,0.08 Z";
+
+    private const double C = Fmt.Cell;
+    private static readonly string W = Fmt.N(L.Width * C);
+    private static readonly string H = Fmt.N(L.Height * C);
+
+    [Parameter] public MapSnapshot Snapshot { get; set; } = MapSnapshot.Empty;
+    [Parameter] public int? SelectedFlightId { get; set; }
+    [Parameter] public int? SelectedGateId { get; set; }
+    [Parameter] public EventCallback<int> OnSelectFlight { get; set; }
+    [Parameter] public EventCallback<int> OnSelectGate { get; set; }
+
+    private AircraftDot? Selected => SelectedFlightId is int id ? Snapshot.Aircraft.FirstOrDefault(a => a.FlightId == id) : null;
+
+    private static string N(double v) => Fmt.N(v);
+    /// <summary>Left/top edge of a cell.</summary>
+    private static string R(double cell) => Fmt.N(cell * C);
+    /// <summary>Pixel size of the inclusive cell range a..b.</summary>
+    private static string Span(int a, int b) => Fmt.N((b - a + 1) * C);
+    private static double TaxiLabelY(int y) => y + 0.75;
+
+    private string RunwayText => Snapshot.RunwayOp switch
+    {
+        RunwayOperation.Landing => "LANDING",
+        RunwayOperation.Takeoff => "TAKEOFF",
+        _ => "CLEAR"
+    };
+
+    private static string RoutePoints(AircraftDot a)
+    {
+        var pts = new List<string> { $"{Fmt.P(a.X)},{Fmt.P(a.Y)}" };
+        pts.AddRange(a.RemainingPath.Select(c => $"{Fmt.P(c.X)},{Fmt.P(c.Y)}"));
+        return string.Join(" ", pts);
+    }
+}

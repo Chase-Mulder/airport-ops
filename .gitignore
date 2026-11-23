@@ -1,0 +1,21 @@
+## .NET / Visual Studio
+bin/
+obj/
+.vs/
+*.user
+*.suo
+*.rsuser
+publish/
+out/
+TestResults/
+
+## Local databases
+*.db
+*.db-shm
+*.db-wal
+
+## OS / editors
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

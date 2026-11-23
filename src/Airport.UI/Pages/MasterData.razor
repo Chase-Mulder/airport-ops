@@ -1,0 +1,111 @@
+@page "/master-data"
+@inherits EngineComponent
+
+<PageTitle>Master data · Airport Ops</PageTitle>
+
+<div class="page-head">
+    <h1>Master data</h1>
+    <p class="muted">Reference tables behind the simulation (stored in SQL in the desktop build). All airlines are fictional.</p>
+</div>
+
+<div class="two-col">
+    <div class="card">
+        <h3 class="section-title">Airlines</h3>
+        <table class="grid">
+            <thead><tr><th>Code</th><th>Name</th><th class="num">Flights (open)</th><th class="num">Departed</th></tr></thead>
+            <tbody>
+                @foreach (var a in _airlines)
+                {
+                    <tr>
+                        <td><span class="airline-dot" style="background:@a.Color"></span><strong>@a.Code</strong></td>
+                        <td>@a.Name</td>
+                        <td class="num">@a.Open</td>
+                        <td class="num">@a.Departed</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+
+    <div class="card">
+        <h3 class="section-title">Aircraft types</h3>
+        <table class="grid">
+            <thead><tr><th>Code</th><th>Size</th><th class="num">Seats</th><th class="num">Min turn</th><th class="num">Fuel</th><th class="num">Bags</th><th class="num">Catering</th><th class="num">Cleaning</th></tr></thead>
+            <tbody>
+                @foreach (var t in _types)
+                {
+                    <tr>
+                        <td><strong>@t.Code</strong><div class="muted small">@t.Name</div></td>
+                        <td>@Fmt.SizeLabel(t.Size)</td>
+                        <td class="num">@t.Seats</td>
+                        <td class="num">@t.MinTurnMinutes</td>
+                        <td class="num">@t.FuelMinutes</td>
+                        <td class="num">@t.BaggageMinutes</td>
+                        <td class="num">@t.CateringMinutes</td>
+                        <td class="num">@t.CleaningMinutes</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+        <p class="muted small">Service durations in minutes.</p>
+    </div>
+</div>
+
+<div class="two-col">
+    <div class="card">
+        <h3 class="section-title">Gates</h3>
+        <table class="grid">
+            <thead><tr><th>Gate</th><th>Concourse</th><th>Largest aircraft</th><th>Stand cell</th><th>Status</th></tr></thead>
+            <tbody>
+                @foreach (var g in _gates)
+                {
+                    <tr>
+                        <td><strong>@g.Code</strong></td>
+                        <td>@g.Concourse</td>
+                        <td>@Fmt.SizeLabel(g.MaxSize)</td>
+                        <td class="mono muted">(@g.StandX, @g.StandY)</td>
+                        <td>@(g.IsClosed ? "Closed" : "Open")</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+
+    <div class="card">
+        <h3 class="section-title">How the simulation works</h3>
+        <ul class="explain">
+            <li><strong>Gate planning:</strong> each new flight gets the smallest free stand that fits its aircraft for its whole ground time (plus buffers). If its gate is still busy when it arrives, it switches to another free stand or holds.</li>
+            <li><strong>Runway control:</strong> one aircraft on runway 27 at a time. When arrivals and departures are both waiting, they take turns.</li>
+            <li><strong>Taxiing:</strong> A* route finding on a one-way taxi network, so aircraft never meet head-on. Each aircraft reserves the cell ahead and keeps a one-cell gap.</li>
+            <li><strong>Turnaround:</strong> deboarding, baggage, fuel and catering start on block; cleaning waits for deboarding; boarding waits for cleaning, catering and fuel, then pushback at departure time.</li>
+            <li><strong>Ground vehicles:</strong> each ready task goes to the closest free vehicle of the right type, most urgent departure first. Vehicles re-route around each other when blocked.</li>
+        </ul>
+    </div>
+</div>
+
+@code {
+    private sealed record AirlineRow(string Code, string Name, string Color, int Open, int Departed);
+
+    private List<AirlineRow> _airlines = new();
+    private List<AircraftType> _types = new();
+    private List<Gate> _gates = new();
+
+    protected override int RefreshMs => 3000;
+
+    protected override void Refresh()
+    {
+        Engine.Read(v =>
+        {
+            _airlines = v.Airlines.Select(a => new AirlineRow(a.Code, a.Name, a.Color,
+                v.OpenFlights.Count(f => f.AirlineId == a.Id),
+                v.Flights.Count(f => f.AirlineId == a.Id && f.Status == FlightStatus.Departed))).ToList();
+            _types = v.AircraftTypes.ToList();
+            _gates = v.Gates.Select(g => new Gate
+            {
+                Id = g.Id, Code = g.Code, Concourse = g.Concourse, MaxSize = g.MaxSize,
+                StandX = g.StandX, StandY = g.StandY, IsClosed = g.IsClosed
+            }).ToList();
+            return 0;
+        });
+    }
+}

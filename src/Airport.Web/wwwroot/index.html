@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Airport Ops · Chase A. Mulder</title>
+    <meta name="description" content="Airport Operations Center: a live airport simulation built with C#, .NET and Blazor by Chase A. Mulder." />
+    <!-- The GitHub Pages workflow rewrites this to /<repository-name>/ -->
+    <base href="/" />
+    <link rel="stylesheet" href="_content/Airport.UI/css/airport.css" />
+    <style>
+        .boot { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; color: #8a96a3; font-family: "Segoe UI", system-ui, sans-serif; }
+        .boot-bar { width: 220px; height: 4px; background: #1b2128; border-radius: 2px; overflow: hidden; }
+        .boot-bar span { display: block; height: 100%; width: calc(var(--blazor-load-percentage, 0%)); background: #3987e5; transition: width .2s; }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <div class="boot">
+            <div style="font-size:18px;color:#e8ecef;font-weight:600">Airport Operations Center</div>
+            <div class="boot-bar"><span></span></div>
+            <div>Loading the .NET runtime in your browser…</div>
+        </div>
+    </div>
+
+    <div id="blazor-error-ui">
+        Something went wrong. <a href="." class="reload">Reload</a>
+    </div>
+    <script src="_framework/blazor.webassembly.js"></script>
+</body>
+</html>

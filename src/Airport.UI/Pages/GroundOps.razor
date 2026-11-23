@@ -1,0 +1,157 @@
+@page "/ground-ops"
+@inherits EngineComponent
+
+<PageTitle>Ground ops · Airport Ops</PageTitle>
+
+<div class="page-head">
+    <h1>Ground operations</h1>
+    <p class="muted">Turnaround progress for every aircraft on stand, and the ground support fleet that services them. Most urgent departure is served first.</p>
+</div>
+
+<div class="card">
+    <h3 class="section-title">Turnarounds</h3>
+    @if (_turns.Count == 0)
+    {
+        <p class="muted small">No aircraft on stand right now.</p>
+    }
+    <div class="turns">
+        @foreach (var t in _turns)
+        {
+            <div class="turn">
+                <div class="turn-head">
+                    <div>
+                        <span class="airline-dot" style="background:@t.Color"></span><strong>@t.Callsign</strong>
+                        <span class="muted small">· @t.Gate · @t.Type → @t.Destination</span>
+                    </div>
+                    <div class="small @(t.Late ? "bad-text" : "muted")">STD @Fmt.Time(t.Std)@(t.Late ? " · late" : "")</div>
+                </div>
+                <div class="segments">
+                    @foreach (var s in t.Tasks)
+                    {
+                        <div class="@Fmt.TaskClass(s.Status)" title="@(s.Vehicle is null ? $"{s.Type}: {s.Status}" : $"{s.Type}: {s.Status} ({s.Vehicle})")">
+                            <span class="seg-label">@s.Type</span>
+                            @if (s.Status == ServiceStatus.InProgress)
+                            {
+                                <span class="seg-fill" style="width:@Fmt.N(s.Progress * 100)%"></span>
+                            }
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+    </div>
+    <div class="legend">
+        <span class="legend-item"><span class="seg-key"></span>Waiting</span>
+        <span class="legend-item"><span class="seg-key ready"></span>Ready</span>
+        <span class="legend-item"><span class="seg-key info"></span>Vehicle en route</span>
+        <span class="legend-item"><span class="seg-key active"></span>In progress</span>
+        <span class="legend-item"><span class="seg-key done"></span>Done</span>
+    </div>
+</div>
+
+<div class="two-col">
+    <div class="card">
+        <h3 class="section-title">Fleet</h3>
+        <table class="grid">
+            <thead><tr><th>Vehicle</th><th>Type</th><th>State</th><th>Job</th><th class="num">Jobs</th><th class="num">Utilization</th></tr></thead>
+            <tbody>
+                @foreach (var v in _fleet)
+                {
+                    <tr>
+                        <td><span class="swatch" style="background:@v.Color"></span><strong>@v.Name</strong></td>
+                        <td>@v.Type</td>
+                        <td><span class="badge @(v.Busy ? "active" : "")">@v.State</span></td>
+                        <td class="small">@(v.Job ?? "—")</td>
+                        <td class="num">@v.Jobs</td>
+                        <td class="num">
+                            <div class="bar inline-bar"><div class="bar-fill" style="width:@Fmt.N(v.Utilization * 100)%"></div></div>
+                            @Fmt.Pct(v.Utilization)
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+
+    <div class="card">
+        <h3 class="section-title">Waiting for a vehicle</h3>
+        @if (_queue.Count == 0)
+        {
+            <p class="muted small">Every ready task has a vehicle. 👍</p>
+        }
+        else
+        {
+            <table class="grid">
+                <thead><tr><th>Flight</th><th>Gate</th><th>Task</th><th class="num">On stand</th><th>STD</th></tr></thead>
+                <tbody>
+                    @foreach (var q in _queue)
+                    {
+                        <tr>
+                            <td class="mono">@q.Callsign</td>
+                            <td>@q.Gate</td>
+                            <td>@q.Task</td>
+                            <td class="num @(q.WaitMinutes > 5 ? "warn-text" : "")">@Fmt.Minutes(q.WaitMinutes)</td>
+                            <td>@Fmt.Time(q.Std)</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+    </div>
+</div>
+
+@code {
+    private sealed record TaskSeg(string Type, ServiceStatus Status, string? Vehicle, double Progress);
+    private sealed record Turn(string Callsign, string Color, string Gate, string Type, string Destination, DateTime Std, bool Late, List<TaskSeg> Tasks);
+    private sealed record FleetRow(string Name, string Type, string Color, string State, bool Busy, string? Job, int Jobs, double Utilization);
+    private sealed record QueueRow(string Callsign, string Gate, string Task, double WaitMinutes, DateTime Std);
+
+    private List<Turn> _turns = new();
+    private List<FleetRow> _fleet = new();
+    private List<QueueRow> _queue = new();
+
+    protected override int RefreshMs => 500;
+
+    protected override void Refresh()
+    {
+        Engine.Read(v =>
+        {
+            var now = v.Now;
+            var onStand = v.OpenFlights
+                .Where(f => f.Status is FlightStatus.AtGate or FlightStatus.Boarding)
+                .OrderBy(f => f.ScheduledDeparture)
+                .ToList();
+
+            _turns = onStand.Select(f => new Turn(
+                f.DepartureNumber,
+                v.AirlineOf(f)?.Color ?? "#9aa5b1",
+                v.GateOf(f)?.Code ?? "?",
+                v.TypeOf(f)?.Code ?? "",
+                f.Destination,
+                f.ScheduledDeparture,
+                now > f.ScheduledDeparture,
+                v.TasksFor(f.Id).Select(t => new TaskSeg(
+                    t.Type.ToString(), t.Status, t.VehicleName,
+                    t.StartedAt is DateTime s ? Math.Clamp((now - s).TotalMinutes / Math.Max(0.1, t.DurationMinutes), 0, 1) : 0)).ToList()
+            )).ToList();
+
+            _fleet = v.Vehicles.Select(x =>
+            {
+                string? job = null;
+                if (x.TaskId is int tid && v.TaskById(tid) is { } task && v.FlightById(task.FlightId) is { } fl)
+                    job = $"{task.Type} · {fl.DepartureNumber} at {v.GateOf(fl)?.Code}";
+                return new FleetRow(x.Name, Fmt.VehicleLabel(x.Serves), Fmt.VehicleColor(x.Serves), x.State.ToString(), x.IsBusy, job,
+                    x.JobsCompleted, x.TotalSeconds < 1 ? 0 : x.BusySeconds / x.TotalSeconds);
+            }).ToList();
+
+            _queue = onStand
+                .SelectMany(f => v.TasksFor(f.Id)
+                    .Where(t => t.NeedsVehicle && t.Status == ServiceStatus.Ready)
+                    .Select(t => new QueueRow(f.DepartureNumber, v.GateOf(f)?.Code ?? "?", t.Type.ToString(),
+                        (now - (f.OnBlockAt ?? now)).TotalMinutes, f.ScheduledDeparture)))
+                .OrderBy(q => q.Std)
+                .ToList();
+            return 0;
+        });
+    }
+}

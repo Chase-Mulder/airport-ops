@@ -1,0 +1,208 @@
+@page "/performance"
+@inherits EngineComponent
+
+<PageTitle>Performance · Airport Ops</PageTitle>
+
+<div class="page-head">
+    <h1>Performance</h1>
+    <p class="muted">Runway throughput and punctuality in simulated time. On time means off-block within @Engine.Settings.OnTimeToleranceMinutes minutes of schedule (the A15 industry standard).</p>
+</div>
+
+<div class="kpis">
+    <div class="kpi"><div class="kpi-label">Runway movements (1 h)</div><div class="kpi-value">@_k.Movements</div><div class="kpi-sub">@_k.Landings landings · @_k.Takeoffs takeoffs</div></div>
+    <div class="kpi"><div class="kpi-label">On-time departures (3 h)</div><div class="kpi-value">@(_k.OnTime is double o ? Fmt.Pct(o) : "—")</div><div class="kpi-sub">@_k.Departures departures</div></div>
+    <div class="kpi"><div class="kpi-label">Avg departure delay</div><div class="kpi-value">@Fmt.Minutes(_k.AvgDelay)</div></div>
+    <div class="kpi"><div class="kpi-label">Avg turnaround</div><div class="kpi-value">@Fmt.Minutes(_k.AvgTurn)</div><div class="kpi-sub">on block → off block</div></div>
+    <div class="kpi"><div class="kpi-label">Avg taxi in</div><div class="kpi-value">@Fmt.Minutes(_k.AvgTaxiIn)</div></div>
+    <div class="kpi"><div class="kpi-label">Avg taxi out</div><div class="kpi-value">@Fmt.Minutes(_k.AvgTaxiOut)</div></div>
+</div>
+
+<div class="card">
+    <div class="card-head">
+        <h3 class="section-title">Runway movements per 10 minutes</h3>
+        <button class="btn btn-small" @onclick="() => _showTable = !_showTable">@(_showTable ? "Show chart" : "Show table")</button>
+    </div>
+
+    @if (_showTable)
+    {
+        <table class="grid">
+            <thead><tr><th>Period</th><th class="num">Landings</th><th class="num">Takeoffs</th><th class="num">Total</th></tr></thead>
+            <tbody>
+                @foreach (var b in _buckets)
+                {
+                    <tr><td>@Fmt.Time(b.Start)–@Fmt.Time(b.Start.AddMinutes(10))</td><td class="num">@b.Landings</td><td class="num">@b.Takeoffs</td><td class="num">@(b.Landings + b.Takeoffs)</td></tr>
+                }
+            </tbody>
+        </table>
+    }
+    else
+    {
+        <div class="legend legend-top">
+            <span class="legend-item"><span class="swatch" style="background:@LandingColor"></span>Landings</span>
+            <span class="legend-item"><span class="swatch" style="background:@TakeoffColor"></span>Takeoffs</span>
+        </div>
+        <svg class="chart" viewBox="0 0 @Fmt.N(ChartW) @Fmt.N(ChartH)" role="img" aria-label="Stacked bar chart of landings and takeoffs per 10 minutes">
+            @for (var i = 0; i <= _yMax; i += _yStep)
+            {
+                var y = Y(i);
+                <line x1="@Fmt.N(PadL)" y1="@Fmt.N(y)" x2="@Fmt.N(ChartW - PadR)" y2="@Fmt.N(y)" class="chart-grid" />
+                <g><text x="@Fmt.N(PadL - 8)" y="@Fmt.N(y + 4)" class="chart-axis" text-anchor="end">@i</text></g>
+            }
+
+            @for (var i = 0; i < _buckets.Count; i++)
+            {
+                var b = _buckets[i];
+                var slot = PlotW / _buckets.Count;
+                var x = PadL + i * slot + slot * 0.2;
+                var w = slot * 0.6;
+                var yLand = Y(b.Landings);
+                var yTotal = Y(b.Landings + b.Takeoffs);
+                <g class="chart-bar">
+                    <title>@Fmt.Time(b.Start)–@Fmt.Time(b.Start.AddMinutes(10)): @b.Landings landings, @b.Takeoffs takeoffs</title>
+                    <rect x="@Fmt.N(PadL + i * slot)" y="@Fmt.N(PadT)" width="@Fmt.N(slot)" height="@Fmt.N(PlotH)" class="chart-hit" />
+                    @if (b.Landings > 0)
+                    {
+                        <rect x="@Fmt.N(x)" y="@Fmt.N(yLand)" width="@Fmt.N(w)" height="@Fmt.N(Math.Max(1, Y(0) - yLand))" fill="@LandingColor" rx="@(b.Takeoffs > 0 ? "0" : "3")" />
+                    }
+                    @if (b.Takeoffs > 0)
+                    {
+                        <rect x="@Fmt.N(x)" y="@Fmt.N(yTotal)" width="@Fmt.N(w)" height="@Fmt.N(Math.Max(1, yLand - yTotal - (b.Landings > 0 ? 2 : 0)))" fill="@TakeoffColor" rx="3" />
+                    }
+                    @if (i % 2 == 0 || _buckets.Count <= 8)
+                    {
+                        <g><text x="@Fmt.N(x + w / 2)" y="@Fmt.N(ChartH - 8)" class="chart-axis" text-anchor="middle">@Fmt.Time(b.Start)</text></g>
+                    }
+                </g>
+            }
+            <line x1="@Fmt.N(PadL)" y1="@Fmt.N(Y(0))" x2="@Fmt.N(ChartW - PadR)" y2="@Fmt.N(Y(0))" class="chart-baseline" />
+        </svg>
+    }
+</div>
+
+<div class="two-col">
+    <div class="card">
+        <h3 class="section-title">Turnaround by aircraft type</h3>
+        <table class="grid">
+            <thead><tr><th>Type</th><th class="num">Turns</th><th>Average vs. minimum</th><th class="num">Avg</th><th class="num">Min</th></tr></thead>
+            <tbody>
+                @foreach (var t in _byType)
+                {
+                    <tr>
+                        <td><strong>@t.Type</strong></td>
+                        <td class="num">@t.Turns</td>
+                        <td>
+                            <div class="bar">
+                                <div class="bar-fill" style="width:@Fmt.N(Math.Min(100, (t.Avg ?? 0) / _typeScale * 100))%"></div>
+                                <div class="bar-marker" style="left:@Fmt.N(Math.Min(100, t.Min / _typeScale * 100))%" title="Minimum turn time"></div>
+                            </div>
+                        </td>
+                        <td class="num">@Fmt.Minutes(t.Avg)</td>
+                        <td class="num muted">@t.Min min</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+
+    <div class="card">
+        <h3 class="section-title">Most delayed departures (3 h)</h3>
+        @if (_late.Count == 0)
+        {
+            <p class="muted small">No late departures. 🎉</p>
+        }
+        <table class="grid">
+            <tbody>
+                @foreach (var l in _late)
+                {
+                    <tr>
+                        <td class="mono">@l.Callsign</td>
+                        <td>@l.Gate</td>
+                        <td>STD @Fmt.Time(l.Std)</td>
+                        <td class="num bad-text">+@l.Delay.ToString("0") min</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>
+
+@code {
+    private const string LandingColor = "#3987e5";
+    private const string TakeoffColor = "#d95926";
+    private const double ChartW = 900, ChartH = 260, PadL = 40, PadR = 12, PadT = 12, PadB = 30;
+    private const double PlotW = ChartW - PadL - PadR, PlotH = ChartH - PadT - PadB;
+
+    private sealed record Kpis(int Movements, int Landings, int Takeoffs, int Departures, double? OnTime, double? AvgDelay, double? AvgTurn, double? AvgTaxiIn, double? AvgTaxiOut);
+    private sealed record Bucket(DateTime Start, int Landings, int Takeoffs);
+    private sealed record TypeRow(string Type, int Turns, double? Avg, int Min);
+    private sealed record LateRow(string Callsign, string Gate, DateTime Std, double Delay);
+
+    private Kpis _k = new(0, 0, 0, 0, null, null, null, null, null);
+    private List<Bucket> _buckets = new();
+    private List<TypeRow> _byType = new();
+    private List<LateRow> _late = new();
+    private int _yMax = 4, _yStep = 1;
+    private double _typeScale = 90;
+    private bool _showTable;
+
+    protected override int RefreshMs => 1500;
+
+    private double Y(double value) => PadT + PlotH - value / _yMax * PlotH;
+
+    protected override void Refresh()
+    {
+        Engine.Read(v =>
+        {
+            var now = v.Now;
+            var tolerance = v.Settings.OnTimeToleranceMinutes;
+            var flights = v.Flights;
+
+            var landings1h = flights.Count(f => f.LandedAt > now.AddHours(-1));
+            var takeoffs1h = flights.Count(f => f.DepartedAt > now.AddHours(-1));
+
+            var recent = flights.Where(f => f.OffBlockAt > now.AddHours(-3)).ToList();
+            double? Avg(IEnumerable<double> xs) { var l = xs.ToList(); return l.Count == 0 ? null : l.Average(); }
+
+            _k = new Kpis(
+                landings1h + takeoffs1h, landings1h, takeoffs1h, recent.Count,
+                recent.Count == 0 ? null : recent.Count(f => (f.OffBlockAt!.Value - f.ScheduledDeparture).TotalMinutes <= tolerance) / (double)recent.Count,
+                Avg(recent.Select(f => Math.Max(0, (f.OffBlockAt!.Value - f.ScheduledDeparture).TotalMinutes))),
+                Avg(recent.Where(f => f.OnBlockAt is not null).Select(f => (f.OffBlockAt!.Value - f.OnBlockAt!.Value).TotalMinutes)),
+                Avg(flights.Where(f => f.OnBlockAt > now.AddHours(-3) && f.LandedAt is not null).Select(f => (f.OnBlockAt!.Value - f.LandedAt!.Value).TotalMinutes)),
+                Avg(flights.Where(f => f.DepartedAt > now.AddHours(-3) && f.OffBlockAt is not null).Select(f => (f.DepartedAt!.Value - f.OffBlockAt!.Value).TotalMinutes)));
+
+            // 12 buckets of 10 minutes, ending at the current bucket.
+            var current = new DateTime(now.Year, now.Month, now.Day, now.Hour, now.Minute / 10 * 10, 0);
+            _buckets = Enumerable.Range(0, 12).Select(i =>
+            {
+                var start = current.AddMinutes((i - 11) * 10);
+                var stop = start.AddMinutes(10);
+                return new Bucket(start,
+                    flights.Count(f => f.LandedAt >= start && f.LandedAt < stop),
+                    flights.Count(f => f.DepartedAt >= start && f.DepartedAt < stop));
+            }).ToList();
+
+            var max = _buckets.Count == 0 ? 0 : _buckets.Max(b => b.Landings + b.Takeoffs);
+            _yStep = Math.Max(1, (int)Math.Ceiling(max / 4.0));
+            _yMax = Math.Max(4, (int)Math.Ceiling(Math.Max(max, 1) / (double)_yStep) * _yStep);
+
+            _byType = v.AircraftTypes.Select(t =>
+            {
+                var turns = flights.Where(f => f.AircraftTypeId == t.Id && f.OnBlockAt is not null && f.OffBlockAt is not null).ToList();
+                return new TypeRow(t.Code, turns.Count,
+                    turns.Count == 0 ? null : turns.Average(f => (f.OffBlockAt!.Value - f.OnBlockAt!.Value).TotalMinutes),
+                    t.MinTurnMinutes);
+            }).ToList();
+            _typeScale = Math.Max(30, _byType.Select(t => Math.Max(t.Avg ?? 0, t.Min)).DefaultIfEmpty(60).Max() * 1.1);
+
+            _late = recent
+                .Select(f => new LateRow(f.DepartureNumber, v.GateOf(f)?.Code ?? "?", f.ScheduledDeparture,
+                    (f.OffBlockAt!.Value - f.ScheduledDeparture).TotalMinutes))
+                .Where(l => l.Delay > tolerance)
+                .OrderByDescending(l => l.Delay)
+                .Take(8)
+                .ToList();
+            return 0;
+        });
+    }
+}

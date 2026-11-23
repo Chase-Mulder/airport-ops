@@ -1,0 +1,268 @@
+@page "/flights"
+@inherits EngineComponent
+
+<PageTitle>Flights · Airport Ops</PageTitle>
+
+<div class="page-head">
+    <h1>Flights</h1>
+    <p class="muted">Schedule new flights, change gates, delay or cancel. Each row is one aircraft visit: inbound and outbound flight.</p>
+</div>
+
+<div class="card">
+    <h3 class="section-title">Schedule a flight</h3>
+    <div class="form-grid">
+        <label>Airline
+            <select @bind="_airlineId">
+                @foreach (var a in _airlines) { <option value="@a.Id">@a.Code · @a.Name</option> }
+            </select>
+        </label>
+        <label>Aircraft type
+            <select value="@_typeId" @onchange="OnTypeChanged">
+                @foreach (var t in _types) { <option value="@t.Id">@t.Code · @t.Seats seats</option> }
+            </select>
+        </label>
+        <label>From
+            <input @bind="_origin" maxlength="3" placeholder="ORD" class="code-input" />
+        </label>
+        <label>To
+            <input @bind="_destination" maxlength="3" placeholder="DTW" class="code-input" />
+        </label>
+        <label>Arrives in (min)
+            <input type="number" min="2" max="600" @bind="_arrivalIn" />
+        </label>
+        <label>Ground time (min)
+            <input type="number" min="@_minTurn" max="600" @bind="_ground" />
+            <span class="hint">min @_minTurn for this type</span>
+        </label>
+        <label>Gate
+            <select @bind="_gateChoice">
+                <option value="0">Auto (gate planner)</option>
+                @foreach (var g in _gatesForType) { <option value="@g.Id">@g.Code · @Fmt.SizeLabel(g.MaxSize)</option> }
+            </select>
+        </label>
+        <div class="form-actions">
+            <button class="btn btn-primary" @onclick="Create">Schedule flight</button>
+        </div>
+    </div>
+    @if (_message is not null)
+    {
+        <div class="alert @(_ok ? "alert-ok" : "alert-bad")">@_message</div>
+    }
+</div>
+
+<div class="card">
+    <div class="card-head">
+        <div class="tabs">
+            @foreach (var tab in Tabs)
+            {
+                <button class="tab @(tab == _tab ? "tab-on" : "")" @onclick="() => SetTab(tab)">@tab <span class="tab-count">@_counts.GetValueOrDefault(tab)</span></button>
+            }
+        </div>
+        <input class="search" placeholder="Search flight, airline, city…" @bind="_search" @bind:event="oninput" @bind:after="RefreshNow" />
+    </div>
+
+    <div class="table-wrap">
+        <table class="grid">
+            <thead>
+                <tr>
+                    <th>Inbound</th><th>Outbound</th><th>Airline</th><th>Type</th><th>Reg</th>
+                    <th>Route</th><th>STA</th><th>On block</th><th>STD</th><th>Off block</th>
+                    <th>Gate</th><th>Status</th><th class="num">Delay</th><th></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var r in _rows)
+                {
+                    <tr>
+                        <td class="mono">@r.ArrivalNumber</td>
+                        <td class="mono">@r.DepartureNumber</td>
+                        <td><span class="airline-dot" style="background:@r.Color"></span>@r.Airline</td>
+                        <td>@r.Type</td>
+                        <td class="mono muted">@r.Registration</td>
+                        <td>@r.Origin → @r.Destination</td>
+                        <td>@Fmt.Time(r.Sta)</td>
+                        <td>@Fmt.Time(r.OnBlock)</td>
+                        <td>@Fmt.Time(r.Std)</td>
+                        <td>@Fmt.Time(r.OffBlock)</td>
+                        <td>
+                            @if (r.CanChangeGate)
+                            {
+                                <select class="inline-select @(r.Gate is null ? "warn-border" : "")" value="@(r.GateId ?? 0)" @onchange="e => ChangeGate(r.Id, e)">
+                                    @if (r.Gate is null) { <option value="0">—</option> }
+                                    @foreach (var g in r.GateOptions) { <option value="@g.Id">@g.Code</option> }
+                                </select>
+                            }
+                            else
+                            {
+                                <span>@(r.Gate ?? "—")</span>
+                            }
+                        </td>
+                        <td><span class="@r.StatusClass">@r.Status</span></td>
+                        <td class="num @(r.Delay > 15 ? "bad-text" : r.Delay > 0.5 ? "warn-text" : "muted")">@(r.Delay > 0.5 ? $"{r.Delay:0}" : "–")</td>
+                        <td class="actions">
+                            @if (r.CanDelay)
+                            {
+                                <button class="btn btn-small" @onclick="() => Delay(r.Id)" title="Delay 15 minutes">+15</button>
+                            }
+                            @if (r.CanCancel)
+                            {
+                                <button class="btn btn-small btn-danger-ghost" @onclick="() => Cancel(r.Id)">Cancel</button>
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+        @if (_rows.Count == 0)
+        {
+            <p class="muted empty">No flights match.</p>
+        }
+    </div>
+</div>
+
+@code {
+    private static readonly string[] Tabs = { "Upcoming", "On ground", "Departed", "Cancelled", "All" };
+
+    private sealed record GateOption(int Id, string Code);
+    private sealed record FlightRow(
+        int Id, string ArrivalNumber, string DepartureNumber, string Airline, string Color, string Type, string Registration,
+        string Origin, string Destination, DateTime Sta, DateTime? OnBlock, DateTime Std, DateTime? OffBlock,
+        int? GateId, string? Gate, string Status, string StatusClass, double Delay,
+        bool CanChangeGate, bool CanDelay, bool CanCancel, List<GateOption> GateOptions);
+
+    private List<Airline> _airlines = new();
+    private List<AircraftType> _types = new();
+    private List<Gate> _allGates = new();
+    private List<Gate> _gatesForType = new();
+    private List<FlightRow> _rows = new();
+    private Dictionary<string, int> _counts = new();
+
+    private string _tab = "Upcoming";
+    private string _search = "";
+    private int _airlineId = 1;
+    private int _typeId = 2;
+    private int _minTurn = 40;
+    private string _origin = "ORD";
+    private string _destination = "DTW";
+    private int _arrivalIn = 10;
+    private int _ground = 50;
+    private int _gateChoice;
+    private string? _message;
+    private bool _ok;
+
+    protected override int RefreshMs => 1000;
+
+    protected override void OnInitialized()
+    {
+        Engine.Read(v =>
+        {
+            _airlines = v.Airlines.ToList();
+            _types = v.AircraftTypes.ToList();
+            return 0;
+        });
+        _airlineId = _airlines.FirstOrDefault()?.Id ?? 0;
+        ApplyType(_types.FirstOrDefault(t => t.Code == "NB180")?.Id ?? _types.FirstOrDefault()?.Id ?? 0);
+        base.OnInitialized();
+    }
+
+    protected override void Refresh()
+    {
+        Engine.Read(v =>
+        {
+            var now = v.Now;
+            _allGates = v.Gates.Select(g => new Gate { Id = g.Id, Code = g.Code, MaxSize = g.MaxSize, IsClosed = g.IsClosed }).ToList();
+            _gatesForType = _allGates.Where(g => !g.IsClosed && _types.FirstOrDefault(t => t.Id == _typeId) is { } type && g.Fits(type.Size)).ToList();
+
+            bool InTab(Flight f, string tab) => tab switch
+            {
+                "Upcoming" => f.Status is FlightStatus.Scheduled or FlightStatus.Approach or FlightStatus.Landing or FlightStatus.TaxiIn,
+                "On ground" => f.Status is FlightStatus.AtGate or FlightStatus.Boarding or FlightStatus.TaxiOut,
+                "Departed" => f.Status == FlightStatus.Departed,
+                "Cancelled" => f.Status == FlightStatus.Cancelled,
+                _ => true
+            };
+
+            _counts = Tabs.ToDictionary(t => t, t => v.Flights.Count(f => InTab(f, t)));
+
+            var query = v.Flights.Where(f => InTab(f, _tab));
+            if (!string.IsNullOrWhiteSpace(_search))
+            {
+                var s = _search.Trim();
+                query = query.Where(f =>
+                    f.ArrivalNumber.Contains(s, StringComparison.OrdinalIgnoreCase) ||
+                    f.DepartureNumber.Contains(s, StringComparison.OrdinalIgnoreCase) ||
+                    f.Origin.Contains(s, StringComparison.OrdinalIgnoreCase) ||
+                    f.Destination.Contains(s, StringComparison.OrdinalIgnoreCase) ||
+                    f.Registration.Contains(s, StringComparison.OrdinalIgnoreCase) ||
+                    (v.AirlineOf(f)?.Name.Contains(s, StringComparison.OrdinalIgnoreCase) ?? false));
+            }
+
+            query = _tab is "Departed" or "Cancelled" or "All"
+                ? query.OrderByDescending(f => f.ScheduledDeparture)
+                : query.OrderBy(f => f.ScheduledArrival);
+
+            _rows = query.Take(150).Select(f =>
+            {
+                var type = v.TypeOf(f);
+                var holding = v.IsHolding(f);
+                var canChange = f.Status is FlightStatus.Scheduled or FlightStatus.Approach;
+                var options = canChange && type is not null
+                    ? v.Gates.Where(g => !g.IsClosed && g.Fits(type.Size)).Select(g => new GateOption(g.Id, g.Code)).ToList()
+                    : new List<GateOption>();
+                return new FlightRow(
+                    f.Id, f.ArrivalNumber, f.DepartureNumber, v.AirlineOf(f)?.Name ?? "", v.AirlineOf(f)?.Color ?? "#9aa5b1",
+                    type?.Code ?? "", f.Registration, f.Origin, f.Destination,
+                    f.ScheduledArrival, f.OnBlockAt, f.ScheduledDeparture, f.OffBlockAt,
+                    f.GateId, v.GateOf(f)?.Code,
+                    Fmt.StatusText(f.Status, holding), Fmt.StatusClass(f.Status, holding),
+                    f.HasLanded ? v.DepartureDelayMinutes(f) : v.ArrivalDelayMinutes(f),
+                    canChange, f.Status == FlightStatus.Scheduled, canChange, options);
+            }).ToList();
+            return 0;
+        });
+    }
+
+    private void SetTab(string tab)
+    {
+        _tab = tab;
+        RefreshNow();
+    }
+
+    private void OnTypeChanged(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out var id)) ApplyType(id);
+        RefreshNow();
+    }
+
+    private void ApplyType(int typeId)
+    {
+        _typeId = typeId;
+        var type = _types.FirstOrDefault(t => t.Id == typeId);
+        _minTurn = type?.MinTurnMinutes ?? 30;
+        _ground = _minTurn + 10;
+        _gateChoice = 0;
+    }
+
+    private void Create()
+    {
+        var result = Engine.CreateFlight(new FlightRequest(_airlineId, _typeId, _origin, _destination, _arrivalIn, _ground,
+            _gateChoice == 0 ? null : _gateChoice));
+        Show(result);
+    }
+
+    private void ChangeGate(int flightId, ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out var gateId) && gateId > 0)
+            Show(Engine.AssignGate(flightId, gateId));
+    }
+
+    private void Delay(int flightId) => Show(Engine.DelayFlight(flightId, 15));
+    private void Cancel(int flightId) => Show(Engine.CancelFlight(flightId));
+
+    private void Show(CommandResult result)
+    {
+        _ok = result.Ok;
+        _message = result.Message;
+        RefreshNow();
+    }
+}

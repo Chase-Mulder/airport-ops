@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Pure domain + simulation logic. No UI, no database: runs in the browser (WebAssembly) and on the desktop. -->
+  <PropertyGroup>
+    <RootNamespace>Airport.Core</RootNamespace>
+  </PropertyGroup>
+
+</Project>
